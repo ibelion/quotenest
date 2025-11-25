@@ -1,18 +1,30 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useState, FormEvent, useEffect } from "react";
 import styles from "./page.module.css";
+import StructuredData from "@/components/StructuredData";
+import { getRecaptchaSiteKey, isRecaptchaConfigured } from "@/lib/recaptcha";
 import type {
   LeadFormData,
   LeadAPIResponse,
   InsuranceType,
 } from "@/types/lead";
 
+declare global {
+  interface Window {
+    grecaptcha: {
+      ready: (callback: () => void) => void;
+      execute: (siteKey: string, options: { action: string }) => Promise<string>;
+    };
+  }
+}
+
 type FormState = "idle" | "loading" | "success" | "error";
 
 export default function Home() {
   const [formState, setFormState] = useState<FormState>("idle");
   const [errorMessage, setErrorMessage] = useState<string>("");
+  const [recaptchaReady, setRecaptchaReady] = useState(false);
   const [formData, setFormData] = useState<Partial<LeadFormData>>({
     fullName: "",
     email: "",
@@ -24,6 +36,40 @@ export default function Home() {
     coverageNeeds: "",
     notes: "",
   });
+
+  // Load reCAPTCHA if configured
+  useEffect(() => {
+    if (!isRecaptchaConfigured()) {
+      return;
+    }
+
+    const siteKey = getRecaptchaSiteKey();
+    if (!siteKey) {
+      return;
+    }
+
+    // Check if already loaded
+    if (window.grecaptcha && window.grecaptcha.ready) {
+      window.grecaptcha.ready(() => {
+        setRecaptchaReady(true);
+      });
+      return;
+    }
+
+    // Load reCAPTCHA script
+    const script = document.createElement("script");
+    script.src = `https://www.google.com/recaptcha/api.js?render=${siteKey}`;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+      if (window.grecaptcha) {
+        window.grecaptcha.ready(() => {
+          setRecaptchaReady(true);
+        });
+      }
+    };
+    document.head.appendChild(script);
+  }, []);
 
   const handleInputChange = (
     e: React.ChangeEvent<
@@ -39,13 +85,39 @@ export default function Home() {
     setFormState("loading");
     setErrorMessage("");
 
+    // Get reCAPTCHA token if configured
+    let recaptchaToken: string | null = null;
+    if (isRecaptchaConfigured() && recaptchaReady) {
+      try {
+        const siteKey = getRecaptchaSiteKey();
+        if (siteKey && window.grecaptcha) {
+          await new Promise<void>((resolve) => {
+            window.grecaptcha.ready(() => {
+              resolve();
+            });
+          });
+          recaptchaToken = await window.grecaptcha.execute(siteKey, {
+            action: "submit",
+          });
+        }
+      } catch (error) {
+        console.error("Failed to get reCAPTCHA token:", error);
+        // Continue without token in case of error (for better UX)
+      }
+    }
+
     try {
+      const payload = {
+        ...formData,
+        ...(recaptchaToken && { recaptchaToken }),
+      };
+
       const response = await fetch("/api/lead", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
 
       const data: LeadAPIResponse = await response.json();
@@ -76,8 +148,10 @@ export default function Home() {
   };
 
   return (
-    <div className={styles.container}>
-      <main className={styles.main}>
+    <>
+      <StructuredData type="Service" />
+      <div className={styles.container}>
+        <main id="main-content" className={styles.main}>
         <section className={styles.hero}>
           <h1 className={styles.heroTitle}>
             QuoteNest – Smarter Insurance Quotes
@@ -102,6 +176,8 @@ export default function Home() {
                 required
                 className={styles.input}
                 disabled={formState === "loading"}
+                aria-required="true"
+                aria-describedby={formState === "error" ? "error-message" : undefined}
               />
             </div>
 
@@ -118,6 +194,8 @@ export default function Home() {
                 required
                 className={styles.input}
                 disabled={formState === "loading"}
+                aria-required="true"
+                aria-describedby={formState === "error" ? "error-message" : undefined}
               />
             </div>
 
@@ -131,6 +209,7 @@ export default function Home() {
                 onChange={handleInputChange}
                 className={styles.input}
                 disabled={formState === "loading"}
+                aria-label="Phone number (optional)"
               />
             </div>
 
@@ -148,6 +227,8 @@ export default function Home() {
                 className={styles.input}
                 placeholder="e.g., New York, NY"
                 disabled={formState === "loading"}
+                aria-required="true"
+                aria-describedby={formState === "error" ? "error-message" : undefined}
               />
             </div>
 
@@ -163,6 +244,8 @@ export default function Home() {
                 required
                 className={styles.select}
                 disabled={formState === "loading"}
+                aria-required="true"
+                aria-describedby={formState === "error" ? "error-message" : undefined}
               >
                 <option value="Auto">Auto</option>
                 <option value="Home">Home</option>
@@ -185,6 +268,7 @@ export default function Home() {
                 onChange={handleInputChange}
                 className={styles.input}
                 disabled={formState === "loading"}
+                aria-label="Current insurance provider (optional)"
               />
             </div>
 
@@ -201,6 +285,7 @@ export default function Home() {
                 className={styles.input}
                 placeholder="e.g., $1,200/year"
                 disabled={formState === "loading"}
+                aria-label="Current premium amount (optional)"
               />
             </div>
 
@@ -217,6 +302,8 @@ export default function Home() {
                 rows={4}
                 className={styles.textarea}
                 disabled={formState === "loading"}
+                aria-required="true"
+                aria-describedby={formState === "error" ? "error-message" : undefined}
               />
             </div>
 
@@ -233,15 +320,18 @@ export default function Home() {
                 className={styles.textarea}
                 placeholder="Extra info, claims history, etc."
                 disabled={formState === "loading"}
+                aria-label="Additional notes (optional)"
               />
             </div>
 
             {formState === "error" && (
-              <div className={styles.errorMessage}>{errorMessage}</div>
+              <div id="error-message" className={styles.errorMessage} role="alert" aria-live="polite">
+                {errorMessage}
+              </div>
             )}
 
             {formState === "success" && (
-              <div className={styles.successMessage}>
+              <div className={styles.successMessage} role="status" aria-live="polite">
                 Thanks! We'll review your info and contact you shortly.
               </div>
             )}
@@ -250,6 +340,7 @@ export default function Home() {
               type="submit"
               className={styles.submitButton}
               disabled={formState === "loading"}
+              aria-label={formState === "loading" ? "Submitting your request" : "Submit quote request"}
             >
               {formState === "loading"
                 ? "Submitting your request…"
@@ -259,5 +350,6 @@ export default function Home() {
         </section>
       </main>
     </div>
+    </>
   );
 }

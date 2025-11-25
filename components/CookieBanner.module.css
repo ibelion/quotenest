@@ -1,0 +1,152 @@
+.banner {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--background);
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  padding: 1.5rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  .banner {
+    border-top-color: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.3);
+  }
+}
+
+.content {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--foreground);
+}
+
+.description {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--foreground);
+  opacity: 0.9;
+  margin: 0;
+}
+
+.link {
+  color: #3b82f6;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.link:hover {
+  color: #2563eb;
+}
+
+.actions {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.acceptButton,
+.declineButton {
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-height: 44px;
+}
+
+.acceptButton {
+  background: #3b82f6;
+  color: white;
+}
+
+.acceptButton:hover {
+  background: #2563eb;
+}
+
+.acceptButton:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+.declineButton {
+  background: transparent;
+  color: var(--foreground);
+  border: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+@media (prefers-color-scheme: dark) {
+  .declineButton {
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+}
+
+.declineButton:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+@media (prefers-color-scheme: dark) {
+  .declineButton:hover {
+    background: rgba(255, 255, 255, 0.05);
+  }
+}
+
+.declineButton:focus-visible {
+  outline: 2px solid var(--foreground);
+  outline-offset: 2px;
+}
+
+@media (min-width: 640px) {
+  .content {
+    flex-direction: row;
+    align-items: center;
+    gap: 1.5rem;
+  }
+
+  .title {
+    font-size: 1rem;
+  }
+
+  .description {
+    flex: 1;
+    font-size: 0.9rem;
+  }
+
+  .actions {
+    flex-shrink: 0;
+  }
+}
+
+@media (max-width: 639px) {
+  .banner {
+    padding: 1.25rem;
+  }
+
+  .content {
+    gap: 1rem;
+  }
+
+  .actions {
+    width: 100%;
+  }
+
+  .acceptButton,
+  .declineButton {
+    flex: 1;
+    min-width: 120px;
+  }
+}
+

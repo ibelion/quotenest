@@ -1,6 +1,7 @@
 // lib/email.ts
 
 import nodemailer from "nodemailer";
+import { escapeHtml } from "./sanitize";
 
 export type InsuranceSummary = {
   overview: string;
@@ -135,15 +136,26 @@ export async function sendLeadEmail(
     plainSummary,
   ].join("\n");
 
+  // Sanitize all user inputs for HTML email (data is already sanitized from API, but double-check for email)
+  const safeFullName = escapeHtml(fullName);
+  const safeEmail = escapeHtml(email);
+  const safePhone = phone ? escapeHtml(phone) : "N/A";
+  const safeLocation = escapeHtml(location);
+  const safeInsuranceType = escapeHtml(insuranceType);
+  const safeCurrentProvider = currentProvider ? escapeHtml(currentProvider) : "N/A";
+  const safeCurrentPremium = currentPremium ? escapeHtml(currentPremium) : "N/A";
+  const safeCoverageNeeds = escapeHtml(coverageNeeds);
+  const safeNotes = notes ? escapeHtml(notes) : "N/A";
+
   const htmlSummary = summary
     ? `
       <h2>AI Insurance Summary</h2>
-      <p><strong>Overview:</strong> ${summary.overview || "N/A"}</p>
+      <p><strong>Overview:</strong> ${escapeHtml(summary.overview || "N/A")}</p>
       <h3>Recommended Coverages</h3>
       <ul>
         ${
           summary.recommendedCoverages?.length
-            ? summary.recommendedCoverages.map((c) => `<li>${c}</li>`).join("")
+            ? summary.recommendedCoverages.map((c) => `<li>${escapeHtml(c)}</li>`).join("")
             : "<li>N/A</li>"
         }
       </ul>
@@ -151,7 +163,7 @@ export async function sendLeadEmail(
       <ul>
         ${
           summary.keyRiskFactors?.length
-            ? summary.keyRiskFactors.map((r) => `<li>${r}</li>`).join("")
+            ? summary.keyRiskFactors.map((r) => `<li>${escapeHtml(r)}</li>`).join("")
             : "<li>N/A</li>"
         }
       </ul>
@@ -159,13 +171,14 @@ export async function sendLeadEmail(
       <ul>
         ${
           summary.savingsOrConsiderations?.length
-            ? summary.savingsOrConsiderations.map((s) => `<li>${s}</li>`).join("")
+            ? summary.savingsOrConsiderations.map((s) => `<li>${escapeHtml(s)}</li>`).join("")
             : "<li>N/A</li>"
         }
       </ul>
       <p><strong>Disclaimer:</strong> ${
-        summary.disclaimer ??
-        "This is an AI-generated, non-binding summary for informational purposes only. It is not legal, financial, or coverage advice."
+        summary.disclaimer
+          ? escapeHtml(summary.disclaimer)
+          : "This is an AI-generated, non-binding summary for informational purposes only. It is not legal, financial, or coverage advice."
       }</p>
     `
     : `
@@ -175,15 +188,15 @@ export async function sendLeadEmail(
 
   const htmlBody = `
     <h1>New QuoteNest Lead</h1>
-    <p><strong>Full Name:</strong> ${fullName}</p>
-    <p><strong>Email:</strong> ${email}</p>
-    <p><strong>Phone:</strong> ${phone || "N/A"}</p>
-    <p><strong>Location:</strong> ${location}</p>
-    <p><strong>Insurance Type:</strong> ${insuranceType}</p>
-    <p><strong>Current Provider:</strong> ${currentProvider || "N/A"}</p>
-    <p><strong>Current Premium:</strong> ${currentPremium || "N/A"}</p>
-    <p><strong>Coverage Needs:</strong><br/>${coverageNeeds}</p>
-    <p><strong>Additional Notes:</strong><br/>${notes || "N/A"}</p>
+    <p><strong>Full Name:</strong> ${safeFullName}</p>
+    <p><strong>Email:</strong> ${safeEmail}</p>
+    <p><strong>Phone:</strong> ${safePhone}</p>
+    <p><strong>Location:</strong> ${safeLocation}</p>
+    <p><strong>Insurance Type:</strong> ${safeInsuranceType}</p>
+    <p><strong>Current Provider:</strong> ${safeCurrentProvider}</p>
+    <p><strong>Current Premium:</strong> ${safeCurrentPremium}</p>
+    <p><strong>Coverage Needs:</strong><br/>${safeCoverageNeeds}</p>
+    <p><strong>Additional Notes:</strong><br/>${safeNotes}</p>
     <hr/>
     ${htmlSummary}
   `;
@@ -192,7 +205,7 @@ export async function sendLeadEmail(
     const info = await transporter.sendMail({
       from: fromEmail!,
       to: leadTargetEmail!,
-      subject: `New QuoteNest Lead – ${fullName} – ${insuranceType}`,
+      subject: `New QuoteNest Lead – ${safeFullName} – ${safeInsuranceType}`,
       text: textBody,
       html: htmlBody,
     });

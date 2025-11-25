@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateInsuranceSummary } from "@/lib/openai";
 import { sendLeadEmail, type InsuranceSummary } from "@/lib/email";
+import { checkRateLimit, getClientIdentifier } from "@/lib/rate-limit";
+import { sanitizeString } from "@/lib/sanitize";
+import { verifyRecaptcha } from "@/lib/recaptcha";
 import type {
   LeadFormData,
   LeadAPIResponse,
   InsuranceType,
 } from "@/types/lead";
+
+// Maximum request body size (1MB)
+const MAX_REQUEST_SIZE = 1024 * 1024;
 
 /**
  * Validates email format
@@ -66,20 +72,66 @@ function validateLeadData(data: unknown): {
     return { isValid: false, errors };
   }
 
-  // Build validated data object
-  const validatedData: LeadFormData = {
-    fullName: formData.fullName as string,
-    email: formData.email as string,
-    location: formData.location as string,
-    insuranceType: formData.insuranceType as InsuranceType,
-    coverageNeeds: formData.coverageNeeds as string,
-    phone: formData.phone as string | undefined,
-    currentProvider: formData.currentProvider as string | undefined,
-    currentPremium: formData.currentPremium as string | undefined,
-    notes: formData.notes as string | undefined,
-  };
+    // Build validated data object and sanitize inputs
+    const validatedData: LeadFormData = {
+      fullName: sanitizeString(formData.fullName as string),
+      email: sanitizeString(formData.email as string),
+      location: sanitizeString(formData.location as string),
+      insuranceType: formData.insuranceType as InsuranceType,
+      coverageNeeds: sanitizeString(formData.coverageNeeds as string),
+      phone: formData.phone ? sanitizeString(formData.phone as string) : undefined,
+      currentProvider: formData.currentProvider
+        ? sanitizeString(formData.currentProvider as string)
+        : undefined,
+      currentPremium: formData.currentPremium
+        ? sanitizeString(formData.currentPremium as string)
+        : undefined,
+      notes: formData.notes ? sanitizeString(formData.notes as string) : undefined,
+    };
 
   return { isValid: true, data: validatedData };
+}
+
+/**
+ * CSRF protection: Check Origin header
+ */
+function verifyOrigin(request: NextRequest): boolean {
+  const origin = request.headers.get("origin");
+  const referer = request.headers.get("referer");
+  
+  // In production, verify origin matches site URL
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://quotenest.com";
+  
+  if (process.env.NODE_ENV === "production") {
+    // Check origin header
+    if (origin) {
+      try {
+        const originUrl = new URL(origin);
+        const siteUrlObj = new URL(siteUrl);
+        if (originUrl.origin !== siteUrlObj.origin) {
+          return false;
+        }
+      } catch {
+        return false;
+      }
+    } else if (referer) {
+      // Fallback to referer if origin is missing
+      try {
+        const refererUrl = new URL(referer);
+        const siteUrlObj = new URL(siteUrl);
+        if (refererUrl.origin !== siteUrlObj.origin) {
+          return false;
+        }
+      } catch {
+        return false;
+      }
+    } else {
+      // No origin or referer in production is suspicious
+      return false;
+    }
+  }
+  
+  return true;
 }
 
 /**
@@ -88,7 +140,134 @@ function validateLeadData(data: unknown): {
  */
 export async function POST(request: NextRequest): Promise<NextResponse<LeadAPIResponse>> {
   try {
-    const body = await request.json();
+    // CSRF protection: Verify Origin header
+    if (!verifyOrigin(request)) {
+      return NextResponse.json(
+        {
+          status: "error",
+          error: "Invalid request origin",
+        } as LeadAPIResponse,
+        { status: 403 }
+      );
+    }
+
+    // Rate limiting: 10 requests per 15 minutes per IP
+    const clientId = getClientIdentifier(request);
+    const rateLimit = checkRateLimit(clientId, {
+      windowMs: 15 * 60 * 1000, // 15 minutes
+      maxRequests: 10,
+    });
+
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        {
+          status: "error",
+          error: "Too many requests. Please try again later.",
+        } as LeadAPIResponse,
+        {
+          status: 429,
+          headers: {
+            "Retry-After": Math.ceil((rateLimit.resetTime - Date.now()) / 1000).toString(),
+            "X-RateLimit-Limit": "10",
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": new Date(rateLimit.resetTime).toISOString(),
+          },
+        }
+      );
+    }
+
+    // Add rate limit headers to successful responses
+    const rateLimitHeaders = {
+      "X-RateLimit-Limit": "10",
+      "X-RateLimit-Remaining": rateLimit.remaining.toString(),
+      "X-RateLimit-Reset": new Date(rateLimit.resetTime).toISOString(),
+    };
+
+    // Verify Content-Type header
+    const contentType = request.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+      return NextResponse.json(
+        {
+          status: "error",
+          error: "Invalid content type",
+        } as LeadAPIResponse,
+        { status: 400 }
+      );
+    }
+
+    // Check Content-Length for request size limit
+    const contentLength = request.headers.get("content-length");
+    if (contentLength) {
+      const size = parseInt(contentLength, 10);
+      if (size > MAX_REQUEST_SIZE) {
+        return NextResponse.json(
+          {
+            status: "error",
+            error: "Request too large",
+          } as LeadAPIResponse,
+          { status: 413 }
+        );
+      }
+    }
+
+    // Read and parse request body with size limit
+    let bodyText: string;
+    try {
+      bodyText = await request.text();
+      
+      // Check actual body size
+      if (bodyText.length > MAX_REQUEST_SIZE) {
+        return NextResponse.json(
+          {
+            status: "error",
+            error: "Request too large",
+          } as LeadAPIResponse,
+          { status: 413 }
+        );
+      }
+    } catch (error) {
+      return NextResponse.json(
+        {
+          status: "error",
+          error: "Failed to read request body",
+        } as LeadAPIResponse,
+        { status: 400 }
+      );
+    }
+
+    let body: unknown;
+    try {
+      body = JSON.parse(bodyText);
+    } catch (error) {
+      return NextResponse.json(
+        {
+          status: "error",
+          error: "Invalid JSON format",
+        } as LeadAPIResponse,
+        { status: 400 }
+      );
+    }
+
+    // Verify reCAPTCHA token
+    const recaptchaToken = (body as Record<string, unknown>)?.recaptchaToken;
+    if (process.env.NODE_ENV === "production" || process.env.ENABLE_RECAPTCHA === "true") {
+      const clientIp = getClientIdentifier(request);
+      const isRecaptchaValid = await verifyRecaptcha(
+        typeof recaptchaToken === "string" ? recaptchaToken : null,
+        clientIp !== "unknown" ? clientIp : undefined
+      );
+      
+      if (!isRecaptchaValid) {
+        return NextResponse.json(
+          {
+            status: "error",
+            error: "reCAPTCHA verification failed",
+          } as LeadAPIResponse,
+          { status: 400 }
+        );
+      }
+    }
+
     const validation = validateLeadData(body);
 
     if (!validation.isValid || !validation.data) {
@@ -139,7 +318,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<LeadAPIRe
       response.emailError = emailError;
     }
 
-    return NextResponse.json(response, { status: 200 });
+    return NextResponse.json(response, {
+      status: 200,
+      headers: rateLimitHeaders,
+    });
   } catch (error) {
     console.error("Error processing lead request:", error);
 
