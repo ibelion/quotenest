@@ -99,14 +99,12 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   
   // Exclude cache from output (Cloudflare Pages compatibility)
-  experimental: {
-    outputFileTracingExcludes: {
-      "*": [
-        ".next/cache/**",
-        "node_modules/@swc/core-*/**",
-        "node_modules/webpack/**",
-      ],
-    },
+  outputFileTracingExcludes: {
+    "*": [
+      ".next/cache/**",
+      "node_modules/@swc/core-*/**",
+      "node_modules/webpack/**",
+    ],
   },
 };
 
