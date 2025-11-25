@@ -1,4 +1,20 @@
 import type { NextConfig } from "next";
+import { existsSync, rmSync } from "fs";
+import { join } from "path";
+
+// Clean up cache directory before build (for Cloudflare Pages)
+// This prevents large cache files from being included in deployment
+if (process.env.CF_PAGES === "1" || process.env.CI === "true") {
+  const cacheDir = join(process.cwd(), ".next", "cache");
+  if (existsSync(cacheDir)) {
+    try {
+      rmSync(cacheDir, { recursive: true, force: true });
+      console.log("✓ Cleaned .next/cache directory");
+    } catch (error) {
+      console.warn("⚠ Failed to clean cache directory:", error);
+    }
+  }
+}
 
 const nextConfig: NextConfig = {
   // Security headers
@@ -81,6 +97,17 @@ const nextConfig: NextConfig = {
   // Performance optimizations
   poweredByHeader: false,
   reactStrictMode: true,
+  
+  // Exclude cache from output (Cloudflare Pages compatibility)
+  experimental: {
+    outputFileTracingExcludes: {
+      "*": [
+        ".next/cache/**",
+        "node_modules/@swc/core-*/**",
+        "node_modules/webpack/**",
+      ],
+    },
+  },
 };
 
 export default nextConfig;

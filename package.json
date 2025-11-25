@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "build:cf": "next build && npx @cloudflare/next-on-pages@latest",
+    "build:cf": "rm -rf .next/cache && next build && npx @cloudflare/next-on-pages@latest",
+    "prebuild:cf": "rm -rf .next/cache",
     "start": "next start",
     "lint": "eslint"
   },

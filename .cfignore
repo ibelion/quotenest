@@ -1,0 +1,14 @@
+# Cloudflare Pages ignore file
+# Exclude cache directories and other build artifacts
+
+.next/cache/
+.next/cache/**
+**/.next/cache/**
+
+# Exclude node_modules if accidentally included
+node_modules/
+
+# Exclude any large build artifacts
+*.pack
+*.gz
+
