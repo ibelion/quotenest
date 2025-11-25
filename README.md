@@ -122,6 +122,32 @@ yarn start
 pnpm start
 ```
 
+## Deployment
+
+### Cloudflare Pages
+
+This project is configured to deploy on Cloudflare Pages using `@cloudflare/next-on-pages`.
+
+**Cloudflare Pages Build Settings:**
+
+- **Framework preset:** Next.js
+- **Build command:** `npm run build:cf`
+- **Build output directory:** `.vercel/output/static`
+
+The `build:cf` script runs the standard Next.js build followed by `@cloudflare/next-on-pages`, which generates the output structure in `.vercel/output/static` that Cloudflare Pages serves.
+
+**Local Testing:**
+
+To test the Cloudflare build locally:
+
+```bash
+npm run build:cf
+```
+
+This will create the `.vercel/output/static` directory with the optimized build output for Cloudflare Pages.
+
+**Note:** The `@cloudflare/next-on-pages` tool requires bash and may not work on Windows. This is not an issue on Cloudflare Pages, which runs builds in a Linux environment. The Next.js build step (`next build`) will complete successfully on all platforms.
+
 ## Project Structure
 
 ```
