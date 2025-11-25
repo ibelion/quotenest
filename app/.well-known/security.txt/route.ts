@@ -5,6 +5,8 @@ import { NextResponse } from "next/server";
  * RFC 9116: https://www.rfc-editor.org/rfc/rfc9116.html
  * Served at /.well-known/security.txt
  */
+export const runtime = "edge";
+
 export async function GET() {
   const securityText = `Contact: mailto:security@quotenest.com
 Expires: 2025-12-31T23:59:59.000Z

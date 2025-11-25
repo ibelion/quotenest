@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateInsuranceSummary } from "@/lib/openai";
-import { sendLeadEmail, type InsuranceSummary } from "@/lib/email";
 import { checkRateLimit, getClientIdentifier } from "@/lib/rate-limit";
 import { sanitizeString } from "@/lib/sanitize";
 import { verifyRecaptcha } from "@/lib/recaptcha";
@@ -8,7 +6,10 @@ import type {
   LeadFormData,
   LeadAPIResponse,
   InsuranceType,
+  InsuranceSummary,
 } from "@/types/lead";
+
+export const runtime = "edge";
 
 // Maximum request body size (1MB)
 const MAX_REQUEST_SIZE = 1024 * 1024;
@@ -132,6 +133,104 @@ function verifyOrigin(request: NextRequest): boolean {
   }
   
   return true;
+}
+
+/**
+ * Generates an AI-powered insurance summary using OpenAI API (Edge-compatible)
+ * Returns null if the OpenAI call fails
+ */
+async function generateInsuranceSummary(
+  formData: LeadFormData
+): Promise<InsuranceSummary | null> {
+  try {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      console.error("[lead] OPENAI_API_KEY not configured");
+      return null;
+    }
+
+    const prompt = `You are an experienced insurance agent helping to generate a preliminary, non-binding insurance summary for a potential client. 
+
+IMPORTANT DISCLAIMER: This summary is for informational purposes only and does not constitute legal advice, guaranteed coverage, or a binding insurance quote. All coverage decisions must be made through a licensed insurance agent after proper underwriting.
+
+Client Information:
+- Name: ${formData.fullName}
+- Location: ${formData.location}
+- Insurance Type: ${formData.insuranceType}
+${formData.currentProvider ? `- Current Provider: ${formData.currentProvider}` : ""}
+${formData.currentPremium ? `- Current Premium: ${formData.currentPremium}` : ""}
+${formData.phone ? `- Phone: ${formData.phone}` : ""}
+
+Coverage Needs:
+${formData.coverageNeeds}
+
+${formData.notes ? `Additional Notes:\n${formData.notes}` : ""}
+
+Please generate a structured insurance summary in JSON format with the following structure:
+{
+  "overview": "A 2-3 sentence overview of the client's insurance situation and needs",
+  "recommendedCoverages": ["List of 3-5 recommended coverage types or features that might be relevant"],
+  "keyRiskFactors": ["List of 2-4 key risk factors or considerations for this client"],
+  "savingsOrConsiderations": ["List of 2-4 potential savings opportunities or important considerations"]
+}
+
+Remember to include a brief disclaimer in the overview that this is non-binding and for informational purposes only.`;
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a professional insurance agent assistant. Generate clear, helpful, and accurate insurance summaries. Always include appropriate disclaimers about non-binding nature of information.",
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        temperature: 0.7,
+        response_format: { type: "json_object" },
+      }),
+    });
+
+    if (!response.ok) {
+      console.error("[lead] OpenAI API request failed:", response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+
+    if (!content) {
+      console.error("[lead] OpenAI returned empty response");
+      return null;
+    }
+
+    const parsed = JSON.parse(content) as InsuranceSummary;
+
+    // Validate the structure
+    if (
+      typeof parsed.overview === "string" &&
+      Array.isArray(parsed.recommendedCoverages) &&
+      Array.isArray(parsed.keyRiskFactors) &&
+      Array.isArray(parsed.savingsOrConsiderations)
+    ) {
+      return parsed;
+    }
+
+    console.error("[lead] OpenAI returned invalid structure:", parsed);
+    return null;
+  } catch (error) {
+    console.error("[lead] Error generating insurance summary:", error);
+    return null;
+  }
 }
 
 /**
@@ -292,30 +391,30 @@ export async function POST(request: NextRequest): Promise<NextResponse<LeadAPIRe
       summary = null;
     }
 
-    // Send email notification (non-blocking - continue even if it fails)
-    let emailError: string | null = null;
-    try {
-      await sendLeadEmail(formData, summary);
-    } catch (error) {
-      console.error("[lead] Email sending failed:", error);
-      emailError = "Failed to send notification email";
-    }
+    // Log lead information (email sending disabled in Edge runtime)
+    console.log("[lead] New lead received:", {
+      fullName: formData.fullName,
+      email: formData.email,
+      phone: formData.phone,
+      location: formData.location,
+      insuranceType: formData.insuranceType,
+      currentProvider: formData.currentProvider,
+      currentPremium: formData.currentPremium,
+      coverageNeeds: formData.coverageNeeds,
+      notes: formData.notes,
+      hasSummary: summary !== null,
+      summaryGenerated: summary !== null,
+    });
 
     // Return success response
     const response: LeadAPIResponse = {
       status: "ok",
-      message: emailError
-        ? "Lead received, but we had an issue sending notification email."
-        : "Lead received",
+      message: "Lead received. Note: Email notifications are currently disabled in this deployment.",
       hasSummary: summary !== null,
     };
 
     if (summary) {
       response.summary = summary;
-    }
-
-    if (emailError) {
-      response.emailError = emailError;
     }
 
     return NextResponse.json(response, {
